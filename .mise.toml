@@ -1,0 +1,6 @@
+[tools]
+go = "1.22.4"
+
+[tasks]
+precommit = "go test ./... -v"
+build = "go build ./cmd/twinkle"

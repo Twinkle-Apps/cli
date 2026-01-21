@@ -1,0 +1,29 @@
+project_name: twinkle
+
+builds:
+  - id: twinkle
+    main: ./cmd/twinkle
+    binary: twinkle
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/twinkle-apps/cli/internal/cli.Version={{.Version}}
+      - -X github.com/twinkle-apps/cli/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/twinkle-apps/cli/internal/cli.Date={{.Date}}
+
+archives:
+  - format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+
+changelog:
+  sort: asc
