@@ -81,6 +81,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output with timing and metadata")
 
 	cmd.AddCommand(newBuildCmd())
+	cmd.AddCommand(newShipCmd())
 	cmd.AddCommand(newVersionCmd())
 
 	// Register debug-only commands (no-op in release builds)

@@ -17,9 +17,8 @@ import (
 
 func newBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "build",
-		Aliases: []string{"ship"},
-		Short:   "Manage app builds",
+		Use:   "build",
+		Short: "Manage app builds",
 	}
 
 	cmd.AddCommand(newBuildStatusCmd())
@@ -107,6 +106,14 @@ func newBuildWaitCmd() *cobra.Command {
 }
 
 func newBuildUploadCmd() *cobra.Command {
+	return newBuildUploadCmdWithUse("upload <app-id> <file>", "Upload a build", nil)
+}
+
+func newShipCmd() *cobra.Command {
+	return newBuildUploadCmdWithUse("ship <app-id> <file>", "Alias for build upload", nil)
+}
+
+func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Command {
 	var (
 		wait    bool
 		timeout int
@@ -114,8 +121,9 @@ func newBuildUploadCmd() *cobra.Command {
 	const pollInterval = 5 * time.Second
 
 	cmd := &cobra.Command{
-		Use:   "upload <app-id> <file>",
-		Short: "Upload a build",
+		Use:     use,
+		Short:   short,
+		Aliases: aliases,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appID := args[0]
