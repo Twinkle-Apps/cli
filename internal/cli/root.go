@@ -11,6 +11,9 @@ import (
 	"github.com/twinkle-apps/cli/internal/api"
 )
 
+// registerDemoCommand is set by init() in demo.go (debug) or demo_release.go (release)
+var registerDemoCommand func(*cobra.Command)
+
 const (
 	defaultBaseURL = "https://app.usetwinkle.com"
 	envAPIKey      = "TWINKLE_API_KEY"
@@ -20,8 +23,9 @@ const (
 type appContextKey struct{}
 
 type AppContext struct {
-	Client *api.Client
-	JSON   bool
+	Client  *api.Client
+	JSON    bool
+	Verbose bool
 }
 
 func Execute() error {
@@ -34,6 +38,7 @@ func newRootCmd() *cobra.Command {
 		apiKey  string
 		baseURL string
 		jsonOut bool
+		verbose bool
 	)
 
 	cmd := &cobra.Command{
@@ -41,7 +46,8 @@ func newRootCmd() *cobra.Command {
 		Short: "Twinkle CLI",
 		Long:  "Command-line interface for the Twinkle build API.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "version" {
+			// Skip API key requirement for certain commands
+			if cmd.Name() == "version" || cmd.Name() == "demo" {
 				return nil
 			}
 
@@ -63,7 +69,7 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 
-			ctx := context.WithValue(cmd.Context(), appContextKey{}, &AppContext{Client: client, JSON: jsonOut})
+			ctx := context.WithValue(cmd.Context(), appContextKey{}, &AppContext{Client: client, JSON: jsonOut, Verbose: verbose})
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -72,9 +78,15 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Twinkle API key (overrides "+envAPIKey+")")
 	cmd.PersistentFlags().StringVar(&baseURL, "base-url", "", "Twinkle API base URL (overrides "+envBaseURL+")")
 	cmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Output JSON")
+	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output with timing and metadata")
 
 	cmd.AddCommand(newBuildCmd())
 	cmd.AddCommand(newVersionCmd())
+
+	// Register debug-only commands (no-op in release builds)
+	if registerDemoCommand != nil {
+		registerDemoCommand(cmd)
+	}
 
 	return cmd
 }

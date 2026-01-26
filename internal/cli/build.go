@@ -48,7 +48,7 @@ func newBuildStatusCmd() *cobra.Command {
 				return err
 			}
 
-			return renderOutput(cmd, appCtx.JSON, resp)
+			return renderOutput(cmd, appCtx.JSON, appCtx.Verbose, resp)
 		},
 	}
 
@@ -79,13 +79,25 @@ func newBuildWaitCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "Waiting for build %s (timeout %ds)...\n", buildID, timeout)
-			resp, err := pollBuildStatus(cmd.Context(), cmd.ErrOrStderr(), appCtx.Client, appID, buildID, "", timeout, pollInterval)
+			stderr := cmd.ErrOrStderr()
+			start := time.Now()
+			jsonOut := appCtx.JSON
+
+			if !jsonOut {
+				Statusf(stderr, "Waiting for build %s...", buildID)
+			}
+			resp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, buildID, "", timeout, pollInterval, appCtx.Verbose, jsonOut)
 			if err != nil {
 				return err
 			}
 
-			return renderOutput(cmd, appCtx.JSON, resp)
+			if err := renderOutput(cmd, jsonOut, appCtx.Verbose, resp); err != nil {
+				return err
+			}
+			if !jsonOut {
+				Done(stderr, time.Since(start))
+			}
+			return nil
 		},
 	}
 
@@ -130,6 +142,17 @@ func newBuildUploadCmd() *cobra.Command {
 				return err
 			}
 
+			stderr := cmd.ErrOrStderr()
+			totalStart := time.Now()
+			verbose := appCtx.Verbose
+			jsonOut := appCtx.JSON
+
+			// Step 1: Prepare upload
+			stepStart := time.Now()
+			if !jsonOut {
+				Statusf(stderr, "Preparing upload for %s...", filepath.Base(filePath))
+			}
+
 			resolvedContentType := "application/zip"
 			params := api.BuildUploadParams{
 				Version:     "0.0.0",
@@ -141,9 +164,27 @@ func newBuildUploadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if verbose && !jsonOut {
+				VerboseStatus(stderr, "Prepared upload", time.Since(stepStart))
+			}
+
+			// Step 2: Upload file
+			stepStart = time.Now()
+			if !jsonOut {
+				Statusf(stderr, "Uploading %s...", filepath.Base(filePath))
+			}
 
 			if err := appCtx.Client.UploadFile(cmd.Context(), createResp.UploadURL, filePath, resolvedContentType); err != nil {
 				return err
+			}
+			if verbose && !jsonOut {
+				VerboseStatus(stderr, "Uploaded", time.Since(stepStart))
+			}
+
+			// Step 3: Complete upload
+			stepStart = time.Now()
+			if !jsonOut {
+				Status(stderr, "Finalizing upload...")
 			}
 
 			buildID := createResp.BuildID.Int()
@@ -151,17 +192,41 @@ func newBuildUploadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			if !wait {
-				return renderOutput(cmd, appCtx.JSON, completeResp)
+			if verbose && !jsonOut {
+				VerboseStatus(stderr, "Finalized", time.Since(stepStart))
 			}
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "Waiting for build %d (timeout %ds)...\n", buildID, timeout)
-			waitResp, err := pollBuildStatus(cmd.Context(), cmd.ErrOrStderr(), appCtx.Client, appID, fmt.Sprintf("%d", buildID), completeResp.StatusURL, timeout, pollInterval)
+			if !wait {
+				if err := renderOutput(cmd, jsonOut, verbose, completeResp); err != nil {
+					return err
+				}
+				if !jsonOut {
+					Done(stderr, time.Since(totalStart))
+				}
+				return nil
+			}
+
+			// Step 4: Wait for processing
+			stepStart = time.Now()
+			if !jsonOut {
+				Status(stderr, "Processing build...")
+			}
+
+			waitResp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, fmt.Sprintf("%d", buildID), completeResp.StatusURL, timeout, pollInterval, verbose, jsonOut)
 			if err != nil {
 				return err
 			}
-			return renderOutput(cmd, appCtx.JSON, waitResp)
+			if verbose && !jsonOut {
+				VerboseStatus(stderr, "Processing complete", time.Since(stepStart))
+			}
+
+			if err := renderOutput(cmd, jsonOut, verbose, waitResp); err != nil {
+				return err
+			}
+			if !jsonOut {
+				Done(stderr, time.Since(totalStart))
+			}
+			return nil
 		},
 	}
 
@@ -173,11 +238,13 @@ func newBuildUploadCmd() *cobra.Command {
 	return cmd
 }
 
-func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, appID, buildID, statusURL string, timeoutSeconds int, interval time.Duration) (api.BuildResponse, error) {
+func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, appID, buildID, statusURL string, timeoutSeconds int, interval time.Duration, verbose, jsonOut bool) (api.BuildResponse, error) {
 	deadline := time.Time{}
 	if timeoutSeconds > 0 {
 		deadline = time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	}
+
+	pollStart := time.Now()
 
 	for {
 		var (
@@ -197,7 +264,13 @@ func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, 
 			return resp, nil
 		}
 
-		fmt.Fprintln(stderr, "Still waiting... status=processing")
+		if !jsonOut {
+			if verbose {
+				VerboseStatus(stderr, "Still processing...", time.Since(pollStart))
+			} else {
+				Status(stderr, "Still processing...")
+			}
+		}
 
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			return api.BuildResponse{}, fmt.Errorf("wait timeout after %ds", timeoutSeconds)
