@@ -16,14 +16,15 @@ import (
 
 // Styles for terminal output
 var (
-	dimStyle     = lipgloss.NewStyle().Faint(true)
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
+	dimStyle         = lipgloss.NewStyle().Faint(true)
+	successStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))          // green
+	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))           // red
+	errorDetailStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Faint(true) // dim red
 )
 
-// Status prints a dimmed status message (for in-progress operations)
+// Status prints a dimmed status message with a · prefix (for in-progress operations)
 func Status(w io.Writer, msg string) {
-	fmt.Fprintln(w, dimStyle.Render(msg))
+	fmt.Fprintf(w, "%s %s\n", dimStyle.Render("·"), dimStyle.Render(msg))
 }
 
 // Statusf prints a formatted dimmed status message
@@ -42,6 +43,21 @@ func Successf(w io.Writer, format string, args ...interface{}) {
 	Success(w, fmt.Sprintf(format, args...))
 }
 
+// Error prints a red ✕ followed by a message
+func Error(w io.Writer, msg string) {
+	fmt.Fprintf(w, "%s %s\n", errorStyle.Render("✕"), errorStyle.Render(msg))
+}
+
+// Errorf prints a formatted error message with ✕
+func Errorf(w io.Writer, format string, args ...interface{}) {
+	Error(w, fmt.Sprintf(format, args...))
+}
+
+// ErrorDetail prints an indented error detail line with a ↳ connector
+func ErrorDetail(w io.Writer, msg string) {
+	fmt.Fprintf(w, "  %s %s\n", errorStyle.Render("↳"), errorDetailStyle.Render(msg))
+}
+
 // MaskSecret masks all but the last `show` characters of a secret
 // Example: MaskSecret("ABCD1234EFGH", 4) returns "●●●●●●●●EFGH"
 func MaskSecret(secret string, show int) string {
@@ -52,14 +68,14 @@ func MaskSecret(secret string, show int) string {
 	return masked + secret[len(secret)-show:]
 }
 
-// Done prints the completion time in a human-friendly format
+// Done prints the completion time in a dimmed, indented format
 func Done(w io.Writer, elapsed time.Duration) {
-	fmt.Fprintf(w, "Done in %.1fs\n", elapsed.Seconds())
+	fmt.Fprintln(w, dimStyle.Render(fmt.Sprintf("  Done in %.1fs", elapsed.Seconds())))
 }
 
 // VerboseStatus prints a status with timing information (for verbose mode)
 func VerboseStatus(w io.Writer, msg string, elapsed time.Duration) {
-	fmt.Fprintln(w, dimStyle.Render(fmt.Sprintf("%s (%.1fs)", msg, elapsed.Seconds())))
+	fmt.Fprintln(w, dimStyle.Render(fmt.Sprintf("· %s (%.1fs)", msg, elapsed.Seconds())))
 }
 
 func renderOutput(cmd *cobra.Command, jsonOut bool, verbose bool, payload interface{}) error {
@@ -83,16 +99,13 @@ func renderOutput(cmd *cobra.Command, jsonOut bool, verbose bool, payload interf
 func printBuildResponse(cmd *cobra.Command, resp api.BuildResponse, verbose bool) {
 	out := cmd.OutOrStdout()
 
-	// Print success messages for completed builds
 	switch resp.Build.Status {
 	case "available":
 		Successf(out, "Build %d processed", resp.Build.ID)
 	case "failed":
-		fmt.Fprintf(out, "Build %d\n", resp.Build.ID)
-		Statusf(out, "  Status: %s", resp.Build.Status)
+		Errorf(out, "Build %d failed", resp.Build.ID)
 	default:
-		fmt.Fprintf(out, "Build %d\n", resp.Build.ID)
-		Statusf(out, "  Status: %s", resp.Build.Status)
+		Statusf(out, "Build %d is %s", resp.Build.ID, resp.Build.Status)
 	}
 
 	if verbose {
@@ -127,9 +140,8 @@ func printBuildResponse(cmd *cobra.Command, resp api.BuildResponse, verbose bool
 	// Appcast info
 	if resp.Build.Status == "failed" {
 		if resp.Build.Metadata != nil && len(resp.Build.Metadata.ProcessingErrors) > 0 {
-			fmt.Fprintln(out, errorStyle.Render("  Errors:"))
 			for _, line := range formatProcessingErrors(resp.Build.Metadata.ProcessingErrors) {
-				fmt.Fprintf(out, "%s\n", errorStyle.Render("    "+line))
+				ErrorDetail(out, line)
 			}
 		}
 		return

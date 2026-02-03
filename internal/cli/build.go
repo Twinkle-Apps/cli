@@ -83,7 +83,7 @@ func newBuildWaitCmd() *cobra.Command {
 			jsonOut := appCtx.JSON
 
 			if !jsonOut {
-				Statusf(stderr, "Waiting for build %s...", buildID)
+				Statusf(stderr, "Waiting for build %s…", buildID)
 			}
 			resp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, buildID, "", timeout, pollInterval, appCtx.Verbose, jsonOut)
 			if err != nil {
@@ -158,7 +158,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 			// Step 1: Prepare upload
 			stepStart := time.Now()
 			if !jsonOut {
-				Statusf(stderr, "Preparing upload for %s...", filepath.Base(filePath))
+				Statusf(stderr, "Preparing upload for %s…", filepath.Base(filePath))
 			}
 
 			resolvedContentType := "application/zip"

@@ -61,10 +61,17 @@ func runStylesDemo(cmd *cobra.Command) error {
 	cmd.Println()
 
 	// Success messages (green checkmark)
-	cmd.Println("Success messages (green checkmark):")
+	cmd.Println("Success messages:")
 	Success(out, "Build uploaded successfully")
 	Successf(out, "Published to %d regions", 12)
 	Success(out, "Feed updated: https://example.com/appcast.xml")
+	cmd.Println()
+
+	// Error messages
+	cmd.Println("Error messages:")
+	Error(out, "Build 42 failed")
+	ErrorDetail(out, "signing: missing certificate")
+	ErrorDetail(out, "version: Build number must be greater than 2022.01.01")
 	cmd.Println()
 
 	// Masked secrets
@@ -100,35 +107,45 @@ func runAnimatedDemo(cmd *cobra.Command, out, stderr interface{ Write([]byte) (i
 
 	start := time.Now()
 
-	cmd.Println("=== Simulated Upload Flow ===")
+	cmd.Println("=== Upload Flow: Success ===")
 	cmd.Println()
 
-	// Step 1: Prepare
 	Status(stderr, "Preparing upload for MyApp.zip…")
 	delay(500 * time.Millisecond)
-
-	// Step 2: Upload
 	Status(stderr, "Uploading to edge network…")
 	delay(1500 * time.Millisecond)
-
-	// Step 3: Finalize
 	Status(stderr, "Finalizing upload…")
 	delay(300 * time.Millisecond)
-
-	// Step 4: Process
 	Status(stderr, "Processing build…")
 	delay(800 * time.Millisecond)
 	Status(stderr, "Still processing…")
 	delay(600 * time.Millisecond)
 
-	// Success output
 	cmd.Println()
 	Successf(out, "Build %d processed", 42)
-	Successf(out, "Published to %d regions", 12)
 	Success(out, "Feed updated: https://app.usetwinkle.com/feeds/my-app/appcast.xml")
+	Done(out, time.Since(start))
+
+	// Failure flow
+	cmd.Println()
+	cmd.Println("=== Upload Flow: Failure ===")
 	cmd.Println()
 
-	Done(stderr, time.Since(start))
+	failStart := time.Now()
+	Status(stderr, "Preparing upload for MyApp.zip…")
+	delay(500 * time.Millisecond)
+	Status(stderr, "Uploading to edge network…")
+	delay(1500 * time.Millisecond)
+	Status(stderr, "Finalizing upload…")
+	delay(300 * time.Millisecond)
+	Status(stderr, "Processing build…")
+	delay(1000 * time.Millisecond)
+
+	cmd.Println()
+	Errorf(out, "Build %d failed", 17)
+	ErrorDetail(out, "version: Build number must be greater than 2022.02.03231334 for version 1.0")
+	ErrorDetail(out, "signing: missing certificate")
+	Done(out, time.Since(failStart))
 
 	return nil
 }
