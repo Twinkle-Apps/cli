@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 var (
 	dimStyle     = lipgloss.NewStyle().Faint(true)
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
+	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
 )
 
 // Status prints a dimmed status message (for in-progress operations)
@@ -83,8 +85,11 @@ func printBuildResponse(cmd *cobra.Command, resp api.BuildResponse, verbose bool
 
 	// Print success messages for completed builds
 	switch resp.Build.Status {
-	case "complete", "published", "available":
+	case "available":
 		Successf(out, "Build %d processed", resp.Build.ID)
+	case "failed":
+		fmt.Fprintf(out, "Build %d\n", resp.Build.ID)
+		Statusf(out, "  Status: %s", resp.Build.Status)
 	default:
 		fmt.Fprintf(out, "Build %d\n", resp.Build.ID)
 		Statusf(out, "  Status: %s", resp.Build.Status)
@@ -92,8 +97,8 @@ func printBuildResponse(cmd *cobra.Command, resp api.BuildResponse, verbose bool
 
 	if verbose {
 		// Verbose mode: show all details
-		fmt.Fprintf(out, "  Version: %s\n", resp.Build.Version)
-		fmt.Fprintf(out, "  Build Number: %s\n", resp.Build.BuildNumber)
+		fmt.Fprintf(out, "  Version: %s\n", formatBuildValue(resp.Build.Status, resp.Build.Version))
+		fmt.Fprintf(out, "  Build Number: %s\n", formatBuildValue(resp.Build.Status, resp.Build.BuildNumber))
 		fmt.Fprintf(out, "  Updated: %s\n", resp.Build.UpdatedAt.Format(time.RFC3339))
 
 		if resp.Build.Metadata != nil {
@@ -120,20 +125,32 @@ func printBuildResponse(cmd *cobra.Command, resp api.BuildResponse, verbose bool
 	}
 
 	// Appcast info
-	if resp.Appcast.Status == "published" {
+	if resp.Build.Status == "failed" {
+		if resp.Build.Metadata != nil && len(resp.Build.Metadata.ProcessingErrors) > 0 {
+			fmt.Fprintln(out, errorStyle.Render("  Errors:"))
+			for _, line := range formatProcessingErrors(resp.Build.Metadata.ProcessingErrors) {
+				fmt.Fprintf(out, "%s\n", errorStyle.Render("    "+line))
+			}
+		}
+		return
+	}
+
+	switch resp.Appcast.Status {
+	case "published":
 		Successf(out, "Feed updated: %s", resp.Appcast.FeedURL)
-	} else {
-		// Show feed status even in non-verbose mode
-		Statusf(out, "Awaiting manual publication (status: %s)", resp.Appcast.Status)
-		if verbose {
-			fmt.Fprintf(out, "  Message: %s\n", resp.Appcast.Message)
-			fmt.Fprintf(out, "  Feed URL: %s\n", resp.Appcast.FeedURL)
-			if resp.Appcast.PublishedAt != nil {
-				fmt.Fprintf(out, "  Published At: %s\n", resp.Appcast.PublishedAt.Format(time.RFC3339))
-			}
-			if resp.Appcast.URL != nil {
-				fmt.Fprintf(out, "  URL: %s\n", *resp.Appcast.URL)
-			}
+	case "waiting_manual":
+		Status(out, "Awaiting manual publication")
+	default:
+		Statusf(out, "Appcast status: %s", resp.Appcast.Status)
+	}
+	if verbose {
+		fmt.Fprintf(out, "  Message: %s\n", resp.Appcast.Message)
+		fmt.Fprintf(out, "  Feed URL: %s\n", resp.Appcast.FeedURL)
+		if resp.Appcast.PublishedAt != nil {
+			fmt.Fprintf(out, "  Published At: %s\n", resp.Appcast.PublishedAt.Format(time.RFC3339))
+		}
+		if resp.Appcast.URL != nil {
+			fmt.Fprintf(out, "  URL: %s\n", *resp.Appcast.URL)
 		}
 	}
 }
@@ -154,6 +171,75 @@ func formatKeys(values map[string]interface{}) string {
 		keys = append(keys, key)
 	}
 	return strings.Join(keys, ", ")
+}
+
+func formatProcessingErrors(values map[string]interface{}) []string {
+	lines := make([]string, 0)
+	collectProcessingErrors(values, "", &lines)
+	if len(lines) == 0 {
+		return []string{"unknown error"}
+	}
+	return lines
+}
+
+func collectProcessingErrors(value interface{}, prefix string, lines *[]string) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		if message, ok := typed["message"].(string); ok {
+			step := ""
+			if stepValue, ok := typed["step"].(string); ok {
+				step = stepValue
+			}
+			line := message
+			if step != "" {
+				line = fmt.Sprintf("%s: %s", step, message)
+			}
+			*lines = append(*lines, line)
+			return
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			nextPrefix := key
+			if prefix != "" {
+				nextPrefix = prefix + "." + key
+			}
+			collectProcessingErrors(typed[key], nextPrefix, lines)
+		}
+	case []interface{}:
+		for _, item := range typed {
+			collectProcessingErrors(item, prefix, lines)
+		}
+	case []string:
+		for _, item := range typed {
+			collectProcessingErrors(item, prefix, lines)
+		}
+	case string:
+		if prefix != "" {
+			*lines = append(*lines, fmt.Sprintf("%s: %s", prefix, typed))
+		} else {
+			*lines = append(*lines, typed)
+		}
+	default:
+		if prefix != "" {
+			*lines = append(*lines, fmt.Sprintf("%s: %s", prefix, fmt.Sprint(typed)))
+		} else {
+			*lines = append(*lines, fmt.Sprint(typed))
+		}
+	}
+}
+
+func formatBuildValue(status string, value *string) string {
+	if value != nil && *value != "" {
+		return *value
+	}
+	if status == "processing" {
+		return "pending"
+	}
+	return "n/a"
 }
 
 // formatBytes formats a byte count as a human-readable string

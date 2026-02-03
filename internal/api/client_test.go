@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -38,8 +39,8 @@ func TestGetBuild(t *testing.T) {
 			Build: Build{
 				ID:          42,
 				Status:      "available",
-				Version:     "1.0.0",
-				BuildNumber: "42",
+				Version:     strPtr("1.0.0"),
+				BuildNumber: strPtr("42"),
 				InsertedAt:  APITime{Time: time.Now()},
 				UpdatedAt:   APITime{Time: time.Now()},
 			},
@@ -81,12 +82,16 @@ func TestCreateUpload(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if got := r.Header.Get("Idempotency-Key"); !isUUIDFormat(got) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		var body BuildUploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if body.Build.Version != "1.0.0" {
+		if body.Build.ContentType != "application/zip" {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
@@ -97,6 +102,7 @@ func TestCreateUpload(t *testing.T) {
 			CompleteURL: server.URL + "/complete",
 			StatusURL:   server.URL + "/status",
 			WaitURL:     server.URL + "/wait",
+			UploadState: "pending_upload",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -108,12 +114,48 @@ func TestCreateUpload(t *testing.T) {
 		t.Fatalf("new client: %v", err)
 	}
 
-	resp, err := client.CreateUpload(context.Background(), "app_123", BuildUploadParams{Version: "1.0.0"})
+	resp, err := client.CreateUpload(context.Background(), "app_123", BuildUploadParams{ContentType: "application/zip"})
 	if err != nil {
 		t.Fatalf("create upload: %v", err)
 	}
 	if resp.BuildID.Int() != 99 {
 		t.Fatalf("expected build id 99, got %d", resp.BuildID.Int())
+	}
+}
+
+func TestCreateUploadWithIdempotencyKey(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Idempotency-Key"); got != "idem-123" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		resp := BuildUploadResponse{
+			BuildID:        BuildID{value: 101},
+			UploadURL:      server.URL + "/upload",
+			CompleteURL:    server.URL + "/complete",
+			StatusURL:      server.URL + "/status",
+			WaitURL:        server.URL + "/wait",
+			UploadState:    "pending_upload",
+			IdempotencyKey: strPtr("idem-123"),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-key", server.Client())
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	resp, err := client.CreateUploadWithOptions(context.Background(), "app_123", BuildUploadParams{}, WithIdempotencyKey("idem-123"))
+	if err != nil {
+		t.Fatalf("create upload: %v", err)
+	}
+	if resp.IdempotencyKey == nil || *resp.IdempotencyKey != "idem-123" {
+		t.Fatalf("expected idempotency key, got %v", resp.IdempotencyKey)
 	}
 }
 
@@ -184,8 +226,8 @@ func TestBuildMetadataIconURLDecode(t *testing.T) {
 			Build: Build{
 				ID:          1,
 				Status:      "processing",
-				Version:     "1.0.0",
-				BuildNumber: "1",
+				Version:     strPtr("1.0.0"),
+				BuildNumber: strPtr("1"),
 				InsertedAt:  APITime{Time: time.Now()},
 				UpdatedAt:   APITime{Time: time.Now()},
 				Metadata: &BuildMetadata{
@@ -263,8 +305,8 @@ func TestWaitBuildByURLAccepts202(t *testing.T) {
 			Build: Build{
 				ID:          1,
 				Status:      "processing",
-				Version:     "1.0.0",
-				BuildNumber: "1",
+				Version:     strPtr("1.0.0"),
+				BuildNumber: strPtr("1"),
 				InsertedAt:  APITime{Time: time.Now()},
 				UpdatedAt:   APITime{Time: time.Now()},
 			},
@@ -275,6 +317,7 @@ func TestWaitBuildByURLAccepts202(t *testing.T) {
 			},
 		}
 
+		resp.PollAfterMs = intPtr(5000)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(resp)
@@ -293,8 +336,57 @@ func TestWaitBuildByURLAccepts202(t *testing.T) {
 	if resp.Build.Status != "processing" {
 		t.Fatalf("expected status processing, got %s", resp.Build.Status)
 	}
+	if resp.PollAfterMs == nil || *resp.PollAfterMs != 5000 {
+		t.Fatalf("expected poll_after_ms 5000, got %v", resp.PollAfterMs)
+	}
+}
+
+func TestWaitBuildUsesDefaultLongPollTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		resp := BuildResponse{
+			Build: Build{
+				ID:          1,
+				Status:      "processing",
+				Version:     strPtr("1.0.0"),
+				BuildNumber: strPtr("1"),
+				InsertedAt:  APITime{Time: time.Now()},
+				UpdatedAt:   APITime{Time: time.Now()},
+			},
+			Appcast: Appcast{
+				Status:  "processing",
+				Message: "processing build",
+				FeedURL: "https://example.com/feed.xml",
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	httpClient.Timeout = 10 * time.Millisecond
+
+	client, err := NewClient(server.URL, "test-key", httpClient)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	if _, err := client.WaitBuildByURL(context.Background(), "/wait", 0); err != nil {
+		t.Fatalf("wait build by url: %v", err)
+	}
 }
 
 func strPtr(value string) *string {
 	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func isUUIDFormat(value string) bool {
+	_, err := uuid.Parse(value)
+	return err == nil
 }

@@ -13,9 +13,12 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const defaultTimeout = 30 * time.Second
+const defaultWaitTimeout = defaultTimeout + 10*time.Second
 
 var ErrMissingAPIKey = errors.New("missing API key")
 
@@ -75,12 +78,7 @@ func (c *Client) WaitBuild(ctx context.Context, appID, buildID string, timeoutSe
 		endpoint.RawQuery = query.Encode()
 	}
 	var resp BuildResponse
-	client := c.httpClient
-	if timeoutSeconds > 0 {
-		custom := *c.httpClient
-		custom.Timeout = time.Duration(timeoutSeconds+10) * time.Second
-		client = &custom
-	}
+	client := c.waitClient(timeoutSeconds)
 	if err := c.doJSONWithClient(ctx, client, http.MethodGet, endpoint, nil, &resp); err != nil {
 		return BuildResponse{}, err
 	}
@@ -104,12 +102,7 @@ func (c *Client) WaitBuildByURL(ctx context.Context, waitURL string, timeoutSeco
 		parsed.RawQuery = query.Encode()
 	}
 	var resp BuildResponse
-	client := c.httpClient
-	if timeoutSeconds > 0 {
-		custom := *c.httpClient
-		custom.Timeout = time.Duration(timeoutSeconds+10) * time.Second
-		client = &custom
-	}
+	client := c.waitClient(timeoutSeconds)
 	if err := c.doJSONWithClient(ctx, client, http.MethodGet, parsed, nil, &resp); err != nil {
 		return BuildResponse{}, err
 	}
@@ -117,10 +110,36 @@ func (c *Client) WaitBuildByURL(ctx context.Context, waitURL string, timeoutSeco
 }
 
 func (c *Client) CreateUpload(ctx context.Context, appID string, params BuildUploadParams) (BuildUploadResponse, error) {
+	return c.CreateUploadWithOptions(ctx, appID, params)
+}
+
+type CreateUploadOption func(*createUploadOptions)
+
+type createUploadOptions struct {
+	idempotencyKey string
+}
+
+func WithIdempotencyKey(key string) CreateUploadOption {
+	return func(opts *createUploadOptions) {
+		opts.idempotencyKey = key
+	}
+}
+
+func (c *Client) CreateUploadWithOptions(ctx context.Context, appID string, params BuildUploadParams, opts ...CreateUploadOption) (BuildUploadResponse, error) {
 	endpoint := c.withPath("/api/v1/apps/%s/uploads", appID)
 	body := BuildUploadRequest{Build: params}
 	var resp BuildUploadResponse
-	if err := c.doJSON(ctx, http.MethodPost, endpoint, body, &resp); err != nil {
+	options := createUploadOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	headers := map[string]string{}
+	idempotencyKey := strings.TrimSpace(options.idempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = uuid.NewString()
+	}
+	headers["Idempotency-Key"] = idempotencyKey
+	if err := c.doJSONWithHeaders(ctx, http.MethodPost, endpoint, body, &resp, headers); err != nil {
 		return BuildUploadResponse{}, err
 	}
 	return resp, nil
@@ -180,6 +199,14 @@ func (c *Client) doJSON(ctx context.Context, method string, endpoint *url.URL, b
 }
 
 func (c *Client) doJSONWithClient(ctx context.Context, client *http.Client, method string, endpoint *url.URL, body interface{}, target interface{}) error {
+	return c.doJSONWithHeadersAndClient(ctx, client, method, endpoint, body, target, nil)
+}
+
+func (c *Client) doJSONWithHeaders(ctx context.Context, method string, endpoint *url.URL, body interface{}, target interface{}, headers map[string]string) error {
+	return c.doJSONWithHeadersAndClient(ctx, c.httpClient, method, endpoint, body, target, headers)
+}
+
+func (c *Client) doJSONWithHeadersAndClient(ctx context.Context, client *http.Client, method string, endpoint *url.URL, body interface{}, target interface{}, headers map[string]string) error {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -197,6 +224,12 @@ func (c *Client) doJSONWithClient(ctx context.Context, client *http.Client, meth
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for key, value := range headers {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
 	}
 
 	resp, err := client.Do(req)
@@ -217,6 +250,19 @@ func (c *Client) doJSONWithClient(ctx context.Context, client *http.Client, meth
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) waitClient(timeoutSeconds int) *http.Client {
+	custom := *c.httpClient
+	if timeoutSeconds > 0 {
+		custom.Timeout = time.Duration(timeoutSeconds+10) * time.Second
+	} else {
+		// Ensure long-poll waits for the server default timeout plus buffer.
+		if custom.Timeout <= 0 || custom.Timeout < defaultWaitTimeout {
+			custom.Timeout = defaultWaitTimeout
+		}
+	}
+	return &custom
 }
 
 func decodeAPIError(body io.Reader, status int) error {

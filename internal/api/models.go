@@ -101,13 +101,13 @@ type Appcast struct {
 }
 
 type Build struct {
-	BuildNumber string         `json:"build_number"`
+	BuildNumber *string        `json:"build_number"`
 	ID          int            `json:"id"`
 	InsertedAt  APITime        `json:"inserted_at"`
 	Metadata    *BuildMetadata `json:"metadata"`
 	Status      string         `json:"status"`
 	UpdatedAt   APITime        `json:"updated_at"`
-	Version     string         `json:"version"`
+	Version     *string        `json:"version"`
 }
 
 type BuildMetadata struct {
@@ -121,14 +121,13 @@ type BuildMetadata struct {
 }
 
 type BuildResponse struct {
-	Appcast Appcast `json:"appcast"`
-	Build   Build   `json:"build"`
+	Appcast     Appcast `json:"appcast"`
+	Build       Build   `json:"build"`
+	PollAfterMs *int    `json:"poll_after_ms,omitempty"`
 }
 
 type BuildUploadParams struct {
-	BuildNumber string `json:"build_number,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
-	Version     string `json:"version,omitempty"`
 }
 
 type BuildUploadRequest struct {
@@ -136,17 +135,20 @@ type BuildUploadRequest struct {
 }
 
 type BuildUploadResponse struct {
-	BuildID     BuildID `json:"build_id"`
-	CompleteURL string  `json:"complete_url"`
-	StatusURL   string  `json:"status_url"`
-	UploadURL   string  `json:"upload_url"`
-	WaitURL     string  `json:"wait_url"`
+	BuildID        BuildID `json:"build_id"`
+	CompleteURL    string  `json:"complete_url"`
+	StatusURL      string  `json:"status_url"`
+	UploadState    string  `json:"upload_state"`
+	UploadURL      string  `json:"upload_url"`
+	WaitURL        string  `json:"wait_url"`
+	IdempotencyKey *string `json:"idempotency_key"`
 }
 
 type BuildUploadCompleteResponse struct {
-	BuildID   BuildID `json:"build_id"`
-	StatusURL string  `json:"status_url"`
-	WaitURL   string  `json:"wait_url"`
+	BuildID     BuildID `json:"build_id"`
+	StatusURL   string  `json:"status_url"`
+	UploadState string  `json:"upload_state"`
+	WaitURL     string  `json:"wait_url"`
 }
 
 type ErrorResponse struct {
