@@ -220,7 +220,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 				Status(stderr, "Processing build…")
 			}
 
-			waitResp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, fmt.Sprintf("%d", buildID), completeResp.StatusURL, timeout, pollInterval, verbose, jsonOut)
+			waitResp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, fmt.Sprintf("%d", buildID), completeResp.WaitURL, timeout, pollInterval, verbose, jsonOut)
 			if err != nil {
 				return err
 			}
@@ -246,7 +246,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 	return cmd
 }
 
-func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, appID, buildID, statusURL string, timeoutSeconds int, interval time.Duration, verbose, jsonOut bool) (api.BuildResponse, error) {
+func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, appID, buildID, waitURL string, timeoutSeconds int, interval time.Duration, verbose, jsonOut bool) (api.BuildResponse, error) {
 	deadline := time.Time{}
 	if timeoutSeconds > 0 {
 		deadline = time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
@@ -259,10 +259,10 @@ func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, 
 			resp api.BuildResponse
 			err  error
 		)
-		if statusURL != "" {
-			resp, err = client.GetBuildByURL(ctx, statusURL)
+		if waitURL != "" {
+			resp, err = client.WaitBuildByURL(ctx, waitURL, timeoutSeconds)
 		} else {
-			resp, err = client.GetBuild(ctx, appID, buildID)
+			resp, err = client.WaitBuild(ctx, appID, buildID, timeoutSeconds)
 		}
 		if err != nil {
 			return api.BuildResponse{}, err
@@ -281,7 +281,7 @@ func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, 
 		}
 
 		if !deadline.IsZero() && time.Now().After(deadline) {
-			return api.BuildResponse{}, fmt.Errorf("wait timeout after %ds", timeoutSeconds)
+			return resp, nil
 		}
 
 		select {

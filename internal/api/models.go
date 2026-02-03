@@ -114,6 +114,7 @@ type BuildMetadata struct {
 	BuildNumber          *string                `json:"build_number"`
 	BuildSize            *int                   `json:"build_size"`
 	BuildVersion         *string                `json:"build_version"`
+	IconURL              *string                `json:"icon_url"`
 	MinimumSystemVersion *string                `json:"minimum_system_version"`
 	ProcessingErrors     map[string]interface{} `json:"processing_errors"`
 	Signature            *string                `json:"signature"`

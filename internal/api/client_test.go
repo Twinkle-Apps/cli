@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,4 +176,125 @@ func TestBuildIDUnmarshalString(t *testing.T) {
 	if id.Int() != 123 {
 		t.Fatalf("expected 123, got %d", id.Int())
 	}
+}
+
+func TestBuildMetadataIconURLDecode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := BuildResponse{
+			Build: Build{
+				ID:          1,
+				Status:      "processing",
+				Version:     "1.0.0",
+				BuildNumber: "1",
+				InsertedAt:  APITime{Time: time.Now()},
+				UpdatedAt:   APITime{Time: time.Now()},
+				Metadata: &BuildMetadata{
+					IconURL: strPtr("https://cdn.example.com/icon.png"),
+				},
+			},
+			Appcast: Appcast{
+				Status:  "processing",
+				Message: "processing build",
+				FeedURL: "https://example.com/feed.xml",
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-key", server.Client())
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	resp, err := client.GetBuild(context.Background(), "app_123", "1")
+	if err != nil {
+		t.Fatalf("get build: %v", err)
+	}
+	if resp.Build.Metadata == nil || resp.Build.Metadata.IconURL == nil {
+		t.Fatal("expected icon_url to be decoded")
+	}
+	if got := *resp.Build.Metadata.IconURL; got != "https://cdn.example.com/icon.png" {
+		t.Fatalf("expected icon_url %q, got %q", "https://cdn.example.com/icon.png", got)
+	}
+}
+
+func TestAPIErrorIncludesDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "invalid_request",
+			"details": map[string]interface{}{
+				"version": []string{"is required"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-key", server.Client())
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	_, err = client.GetBuild(context.Background(), "app_123", "1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "invalid_request") || !strings.Contains(msg, "version") || !strings.Contains(msg, "is required") {
+		t.Fatalf("expected error to include details, got %q", msg)
+	}
+}
+
+func TestWaitBuildByURLAccepts202(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wait" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if got := r.URL.Query().Get("timeout"); got != "12" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		resp := BuildResponse{
+			Build: Build{
+				ID:          1,
+				Status:      "processing",
+				Version:     "1.0.0",
+				BuildNumber: "1",
+				InsertedAt:  APITime{Time: time.Now()},
+				UpdatedAt:   APITime{Time: time.Now()},
+			},
+			Appcast: Appcast{
+				Status:  "processing",
+				Message: "processing build",
+				FeedURL: "https://example.com/feed.xml",
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-key", server.Client())
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	resp, err := client.WaitBuildByURL(context.Background(), "/wait", 12)
+	if err != nil {
+		t.Fatalf("wait build by url: %v", err)
+	}
+	if resp.Build.Status != "processing" {
+		t.Fatalf("expected status processing, got %s", resp.Build.Status)
+	}
+}
+
+func strPtr(value string) *string {
+	return &value
 }

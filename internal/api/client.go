@@ -87,6 +87,35 @@ func (c *Client) WaitBuild(ctx context.Context, appID, buildID string, timeoutSe
 	return resp, nil
 }
 
+func (c *Client) WaitBuildByURL(ctx context.Context, waitURL string, timeoutSeconds int) (BuildResponse, error) {
+	if strings.TrimSpace(waitURL) == "" {
+		return BuildResponse{}, fmt.Errorf("wait url is empty")
+	}
+	parsed, err := url.Parse(waitURL)
+	if err != nil {
+		return BuildResponse{}, fmt.Errorf("parse wait url: %w", err)
+	}
+	if parsed.Scheme == "" {
+		parsed = c.baseURL.ResolveReference(parsed)
+	}
+	if timeoutSeconds > 0 {
+		query := parsed.Query()
+		query.Set("timeout", fmt.Sprintf("%d", timeoutSeconds))
+		parsed.RawQuery = query.Encode()
+	}
+	var resp BuildResponse
+	client := c.httpClient
+	if timeoutSeconds > 0 {
+		custom := *c.httpClient
+		custom.Timeout = time.Duration(timeoutSeconds+10) * time.Second
+		client = &custom
+	}
+	if err := c.doJSONWithClient(ctx, client, http.MethodGet, parsed, nil, &resp); err != nil {
+		return BuildResponse{}, err
+	}
+	return resp, nil
+}
+
 func (c *Client) CreateUpload(ctx context.Context, appID string, params BuildUploadParams) (BuildUploadResponse, error) {
 	endpoint := c.withPath("/api/v1/apps/%s/uploads", appID)
 	body := BuildUploadRequest{Build: params}
@@ -197,6 +226,11 @@ func decodeAPIError(body io.Reader, status int) error {
 	}
 	var apiErr ErrorResponse
 	if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Error != "" {
+		if len(apiErr.Details) > 0 {
+			if detailPayload, err := json.Marshal(apiErr.Details); err == nil {
+				return fmt.Errorf("api error status %d: %s: %s", status, apiErr.Error, strings.TrimSpace(string(detailPayload)))
+			}
+		}
 		return fmt.Errorf("api error status %d: %s", status, apiErr.Error)
 	}
 	return fmt.Errorf("api error status %d: %s", status, strings.TrimSpace(string(payload)))
