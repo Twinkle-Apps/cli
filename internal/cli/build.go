@@ -163,8 +163,6 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 
 			resolvedContentType := "application/zip"
 			params := api.BuildUploadParams{
-				Version:     "0.0.0",
-				BuildNumber: "0",
 				ContentType: resolvedContentType,
 			}
 
@@ -284,10 +282,25 @@ func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, 
 			return resp, nil
 		}
 
+		// Respect server-guided backoff when the wait endpoint returns 202.
+		nextInterval := interval
+		if resp.PollAfterMs != nil && *resp.PollAfterMs > 0 {
+			nextInterval = time.Duration(*resp.PollAfterMs) * time.Millisecond
+		}
+		if !deadline.IsZero() {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return resp, nil
+			}
+			if nextInterval > remaining {
+				nextInterval = remaining
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			return api.BuildResponse{}, ctx.Err()
-		case <-time.After(interval):
+		case <-time.After(nextInterval):
 		}
 	}
 }
