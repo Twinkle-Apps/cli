@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,10 @@ func TestCreateUpload(t *testing.T) {
 		}
 		if r.URL.Path != "/api/v1/apps/app_123/uploads" {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if got := r.Header.Get("Idempotency-Key"); !isUUIDFormat(got) {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		var body BuildUploadRequest
@@ -379,4 +384,9 @@ func strPtr(value string) *string {
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func isUUIDFormat(value string) bool {
+	_, err := uuid.Parse(value)
+	return err == nil
 }

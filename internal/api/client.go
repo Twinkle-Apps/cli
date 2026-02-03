@@ -13,6 +13,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -132,9 +134,11 @@ func (c *Client) CreateUploadWithOptions(ctx context.Context, appID string, para
 		opt(&options)
 	}
 	headers := map[string]string{}
-	if strings.TrimSpace(options.idempotencyKey) != "" {
-		headers["Idempotency-Key"] = options.idempotencyKey
+	idempotencyKey := strings.TrimSpace(options.idempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = uuid.NewString()
 	}
+	headers["Idempotency-Key"] = idempotencyKey
 	if err := c.doJSONWithHeaders(ctx, http.MethodPost, endpoint, body, &resp, headers); err != nil {
 		return BuildUploadResponse{}, err
 	}
