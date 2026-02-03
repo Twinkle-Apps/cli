@@ -55,9 +55,9 @@ func runStylesDemo(cmd *cobra.Command) error {
 
 	// Status messages (dimmed)
 	cmd.Println("Status messages (dimmed/in-progress):")
-	Status(out, "Preparing upload...")
-	Status(out, "Uploading MyApp.zip...")
-	Statusf(out, "Processing build %d...", 42)
+	Status(out, "Preparing upload…")
+	Status(out, "Uploading MyApp.zip…")
+	Statusf(out, "Processing build %d…", 42)
 	cmd.Println()
 
 	// Success messages (green checkmark)
@@ -104,21 +104,21 @@ func runAnimatedDemo(cmd *cobra.Command, out, stderr interface{ Write([]byte) (i
 	cmd.Println()
 
 	// Step 1: Prepare
-	Status(stderr, "Preparing upload for MyApp.zip...")
+	Status(stderr, "Preparing upload for MyApp.zip…")
 	delay(500 * time.Millisecond)
 
 	// Step 2: Upload
-	Status(stderr, "Uploading MyApp.zip...")
+	Status(stderr, "Uploading to edge network…")
 	delay(1500 * time.Millisecond)
 
 	// Step 3: Finalize
-	Status(stderr, "Finalizing upload...")
+	Status(stderr, "Finalizing upload…")
 	delay(300 * time.Millisecond)
 
 	// Step 4: Process
-	Status(stderr, "Processing build...")
+	Status(stderr, "Processing build…")
 	delay(800 * time.Millisecond)
-	Status(stderr, "Still processing...")
+	Status(stderr, "Still processing…")
 	delay(600 * time.Millisecond)
 
 	// Success output

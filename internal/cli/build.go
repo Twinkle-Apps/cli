@@ -124,7 +124,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 		Use:     use,
 		Short:   short,
 		Aliases: aliases,
-		Args:  cobra.ExactArgs(2),
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appID := args[0]
 			filePath := args[1]
@@ -179,7 +179,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 			// Step 2: Upload file
 			stepStart = time.Now()
 			if !jsonOut {
-				Statusf(stderr, "Uploading %s...", filepath.Base(filePath))
+				Statusf(stderr, "Uploading to edge network…")
 			}
 
 			if err := appCtx.Client.UploadFile(cmd.Context(), createResp.UploadURL, filePath, resolvedContentType); err != nil {
@@ -192,7 +192,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 			// Step 3: Complete upload
 			stepStart = time.Now()
 			if !jsonOut {
-				Status(stderr, "Finalizing upload...")
+				Status(stderr, "Finalizing upload…")
 			}
 
 			buildID := createResp.BuildID.Int()
@@ -217,7 +217,7 @@ func newBuildUploadCmdWithUse(use, short string, aliases []string) *cobra.Comman
 			// Step 4: Wait for processing
 			stepStart = time.Now()
 			if !jsonOut {
-				Status(stderr, "Processing build...")
+				Status(stderr, "Processing build…")
 			}
 
 			waitResp, err := pollBuildStatus(cmd.Context(), stderr, appCtx.Client, appID, fmt.Sprintf("%d", buildID), completeResp.StatusURL, timeout, pollInterval, verbose, jsonOut)
@@ -274,9 +274,9 @@ func pollBuildStatus(ctx context.Context, stderr io.Writer, client *api.Client, 
 
 		if !jsonOut {
 			if verbose {
-				VerboseStatus(stderr, "Still processing...", time.Since(pollStart))
+				VerboseStatus(stderr, "Still processing…", time.Since(pollStart))
 			} else {
-				Status(stderr, "Still processing...")
+				Status(stderr, "Still processing…")
 			}
 		}
 
